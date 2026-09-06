@@ -147,7 +147,7 @@ function Login({ onLogin }) {
                 required
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                placeholder="مثال: ebraqg1029"
+                placeholder=""
               />
             </div>
           </label>
