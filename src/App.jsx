@@ -111,13 +111,15 @@ function Login({ onLogin }) {
           <div className="tech-node node-one" /><div className="tech-node node-two" /><div className="tech-node node-three" />
         </div>
         <div className="art-copy">
-          <span>منصة واحدة لإدارة مدارسكم</span>
+          <span>نظام إدارة المدارس الموثوق</span>
           <h1>
-            بيانات أوضح.
+            إدارة ذكية.
             <br />
-            قرارات أسرع.
+            بيانات آمنة.
+            <br />
+            كفاءة أفضل.
           </h1>
-          <p>تابع بيانات المدارس ومواقعها ومستخدمي فريقك من لوحة تحكم واحدة.</p>
+          <p>منصة موثوقة لإدارة بيانات المدارس والمديرين وقطع الغيار</p>
         </div>
       </div>
       <div className="login-card">
