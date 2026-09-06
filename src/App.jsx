@@ -85,7 +85,7 @@ function LocationPicker({ onChange }) {
 function Credits() {
   return (
     <div className="credits">
-      فكرة بسام الحمدان <span>•</span> برمجة وتطوير ابراهيم القحطاني
+     <span>•</span> برمجة وتطوير ابراهيم القحطاني
     </div>
   );
 }
@@ -102,6 +102,13 @@ function Login({ onLogin }) {
             <ShieldCheck size={24} />
           </span>
           <b>Technical Support</b>
+        </div>
+        <div className="tech-scene" aria-hidden="true">
+          <div className="tech-grid" />
+          <div className="tech-orbit orbit-one"><span /></div>
+          <div className="tech-orbit orbit-two"><span /></div>
+          <div className="tech-core"><ShieldCheck size={52} /></div>
+          <div className="tech-node node-one" /><div className="tech-node node-two" /><div className="tech-node node-three" />
         </div>
         <div className="art-copy">
           <span>منصة واحدة لإدارة مدارسكم</span>
@@ -690,7 +697,7 @@ function Dashboard({ schools, users, userName, go }) {
         <Stat
           icon={MapPin}
           color="orange"
-          label="بانتظار المراجعة"
+          label="المدارس المكتملة"
           value={schools.filter((s) => s.status !== "مكتمل").length}
         />
         <Stat
@@ -708,7 +715,7 @@ function Dashboard({ schools, users, userName, go }) {
               أهلًا {userName}،<br />
               كل شيء تحت السيطرة.
             </h2>
-            <p>لديك مدارس بانتظار المراجعة اليوم.</p>
+            <p>{schools.length ? `تم تسجيل ${schools.length} مدارس في النظام.` : "ابدأ بإضافة أول مدرسة إلى النظام."}</p>
             <button className="primary-button" onClick={() => go("المدارس")}>
               مراجعة المدارس <ChevronLeft size={16} />
             </button>
