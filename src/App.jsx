@@ -99,7 +99,7 @@ function Login({ onLogin }) {
       <div className="login-art">
         <div className="login-brand">
           <span className="brand-mark">
-            <img src="/favicon.svg" alt="Technical Support" />
+            <img src="/supportnow_logo_s.svg" alt="supportnow" />
           </span>
           <b>Technical Support</b>
         </div>
@@ -125,7 +125,7 @@ function Login({ onLogin }) {
       <div className="login-card">
         <div className="login-header">
           <span className="brand-mark">
-            <img src="/favicon.svg" alt="Technical Support" />
+            <img src="/supportnow_logo_s.svg" alt="supportnow" />
           </span>
           <p>مرحبًا بك في</p>
           <h2>Technical Support</h2>
@@ -453,7 +453,7 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark">
-            <img src="/favicon.svg" alt="Technical Support" />
+            <img src="/supportnow_logo_s.svg" alt="supportnow" />
           </span>
           <span>Technical Support</span>
         </div>
