@@ -305,7 +305,7 @@ function App() {
     );
     setModal("user");
   };
-  const canManageUsers = hasRole("Full Access");
+  const canManageUsers = currentUser.roles.includes("Full Access");
   const canSeeParts = hasRole("Full Access") || hasRole("Parts Manager");
   const canManageParts = hasRole("Parts Manager");
   const savePart = (event) => {
@@ -436,7 +436,7 @@ function App() {
     ["لوحة التحكم", LayoutDashboard],
     ["المدارس", Building2],
     ...(canSeeParts ? [["قطع الغيار", Package]] : []),
-    ["المستخدمون", Users],
+    ...(canManageUsers ? [["المستخدمون", Users]] : []),
     ["التقارير", FileText],
   ];
   return (
@@ -571,7 +571,7 @@ function App() {
               role={role}
             />
           )}
-          {page === "المستخدمون" && (
+          {page === "المستخدمون" && canManageUsers && (
             <UsersPage
               users={users}
               role={role}
@@ -1369,7 +1369,7 @@ function ReportsPage({
     roles.includes("Full Access") ||
     roles.includes(requestedRole) ||
     role === requestedRole;
-  const canViewStock = hasRole("Team Manager") || hasRole("Parts Manager");
+  const canViewStock = roles.includes("Parts Manager");
   const canSendWeekly = hasRole("Team Manager") || hasRole("Employee");
   const canViewAllWeekly = hasRole("Team Manager");
   const visibleWeeklyReports = canViewAllWeekly
