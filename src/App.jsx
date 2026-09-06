@@ -49,7 +49,7 @@ const usersSeed = [
     id: 1,
     name: "ابراهيم القحطاني",
     username: "ebraqg1029",
-    roles: ["فل أكسس"],
+    roles: ["Full Access"],
     password: "123456",
     status: "نشط",
   },
@@ -63,7 +63,7 @@ const emptyWeeklyReport = {
   partsAdded: false,
   partsSchoolIds: [],
 };
-const roleOptions = ["فل أكسس", "مدير الفريق", "موظف", "مسؤول قطع الغيار"];
+const roleOptions = ["Full Access", "Team Manager", "Employee", "Parts Manager"];
 const emptySchool = {
   name: "",
   director: "",
@@ -93,6 +93,7 @@ function Credits() {
 function Login({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   return (
     <div className="login-page" dir="rtl">
       <div className="login-art">
@@ -124,7 +125,8 @@ function Login({ onLogin }) {
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            onLogin(username);
+            const valid = onLogin(username, password);
+            if (!valid) setError("Invalid username or password");
           }}
         >
           <label>
@@ -159,6 +161,7 @@ function Login({ onLogin }) {
             </label>
             <button type="button">نسيت كلمة المرور؟</button>
           </div>
+          {error && <p className="login-error">{error}</p>}
           <button className="login-button">
             تسجيل الدخول <ChevronLeft size={17} />
           </button>
@@ -190,13 +193,13 @@ function App() {
   const [userForm, setUserForm] = useState({
     name: "",
     username: "",
-    roles: ["موظف"],
+    roles: ["Employee"],
     password: "",
   });
   const [editingUser, setEditingUser] = useState(null);
   const [editing, setEditing] = useState(null);
   const [modal, setModal] = useState(null);
-  const [role, setRole] = useState("فل أكسس");
+  const [role, setRole] = useState("Full Access");
   const [userMenu, setUserMenu] = useState(false);
   const filtered = useMemo(
     () =>
@@ -210,17 +213,19 @@ function App() {
   const currentUser =
     users.find((user) => user.id === currentUserId) || users[0];
   const hasRole = (requestedRole) =>
-    currentUser.roles.includes("فل أكسس") ||
+    currentUser.roles.includes("Full Access") ||
     currentUser.roles.includes(requestedRole) ||
     role === requestedRole;
   if (!loggedIn)
     return (
       <Login
-        onLogin={(username) => {
-          const user = users.find((item) => item.username === username) || users[0];
+        onLogin={(username, password) => {
+          const user = users.find((item) => item.username === username && item.password === password);
+          if (!user) return false;
           setCurrentUserId(user.id);
           setRole(user.roles[0]);
           setLoggedIn(true);
+          return true;
         }}
       />
     );
@@ -282,7 +287,7 @@ function App() {
             },
           ],
     );
-    setUserForm({ name: "", username: "", roles: ["موظف"], password: "" });
+    setUserForm({ name: "", username: "", roles: ["Employee"], password: "" });
     setEditingUser(null);
     setModal(null);
   };
@@ -296,17 +301,13 @@ function App() {
             roles: user.roles,
             password: "",
           }
-        : { name: "", username: "", roles: ["موظف"], password: "" },
+        : { name: "", username: "", roles: ["Employee"], password: "" },
     );
     setModal("user");
   };
-  const canManageUsers = hasRole("فل أكسس");
-  const canSeeParts =
-    role === "فل أكسس" ||
-    role === "مدير الفريق" ||
-    role === "موظف" ||
-    role === "مسؤول قطع الغيار";
-  const canManageParts = hasRole("مسؤول قطع الغيار");
+  const canManageUsers = hasRole("Full Access");
+  const canSeeParts = hasRole("Full Access") || hasRole("Parts Manager");
+  const canManageParts = hasRole("Parts Manager");
   const savePart = (event) => {
     event.preventDefault();
     if (!partForm.name || !partForm.code) return;
@@ -404,7 +405,7 @@ function App() {
           .filter((school) => weeklyForm.partsSchoolIds.includes(school.id))
           .map((school) => school.name),
         notes: weeklyForm.notes,
-        status: "مرسل إلى مدير الفريق",
+        status: "Sent to Team Manager",
       },
       ...items,
     ]);
@@ -524,16 +525,6 @@ function App() {
               </button>
               {userMenu && (
                 <div className="user-menu">
-                  <button
-                    onClick={() =>
-                      setRole(
-                        role === "فل أكسس" ? "مسؤول قطع الغيار" : "فل أكسس",
-                      )
-                    }
-                  >
-                    التبديل إلى{" "}
-                    {role === "فل أكسس" ? "مسؤول قطع الغيار" : "فل أكسس"}
-                  </button>
                   <button onClick={() => setLoggedIn(false)}>
                     <LogOut size={13} /> تسجيل الخروج
                   </button>
@@ -853,7 +844,7 @@ function SchoolsPage({ schools, query, setQuery, openEdit, remove, role }) {
                     <button onClick={() => openEdit(school)}>
                       <Edit3 size={15} />
                     </button>
-                    {role !== "مسؤول قطع الغيار" && (
+                    {role !== "Parts Manager" && (
                       <button onClick={() => remove(school.id)}>
                         <Trash2 size={15} />
                       </button>
@@ -906,7 +897,7 @@ function UsersPage({ users, role, canManageUsers, onEdit, remove }) {
                 <td>
                   <span
                     className={
-                      user.roles.includes("فل أكسس")
+                      user.roles.includes("Full Access")
                         ? "role-tag admin"
                         : "role-tag"
                     }
@@ -930,7 +921,7 @@ function UsersPage({ users, role, canManageUsers, onEdit, remove }) {
                       >
                         <LockKeyhole size={15} />
                       </button>
-                      {user.roles.includes("فل أكسس") === false && (
+                      {user.roles.includes("Full Access") === false && (
                         <button
                           className="delete-user"
                           title="حذف المستخدم"
@@ -985,7 +976,7 @@ function PartsPage({ parts, issues, onAddPart, onIssuePart }) {
         <div className="panel-header">
           <div>
             <h2>مخزون قطع الغيار</h2>
-            <p>الأصناف والكميات المتوفرة لدى مسؤول قطع الغيار</p>
+            <p>Available stock and quantities for the Parts Manager</p>
           </div>
         </div>
         <div className="table-wrap">
@@ -1353,7 +1344,7 @@ function WeeklyReportModal({ form, setForm, schools, save, close }) {
             </button>
             <button className="primary-button">
               <Send size={17} />
-              إرسال إلى مدير الفريق
+              Send to Team Manager
             </button>
           </div>
         </form>
@@ -1375,12 +1366,12 @@ function ReportsPage({
   onWeeklyReport,
 }) {
   const hasRole = (requestedRole) =>
-    roles.includes("فل أكسس") ||
+    roles.includes("Full Access") ||
     roles.includes(requestedRole) ||
     role === requestedRole;
-  const canViewStock = hasRole("مدير الفريق") || hasRole("مسؤول قطع الغيار");
-  const canSendWeekly = hasRole("مدير الفريق") || hasRole("موظف");
-  const canViewAllWeekly = hasRole("مدير الفريق");
+  const canViewStock = hasRole("Team Manager") || hasRole("Parts Manager");
+  const canSendWeekly = hasRole("Team Manager") || hasRole("Employee");
+  const canViewAllWeekly = hasRole("Team Manager");
   const visibleWeeklyReports = canViewAllWeekly
     ? weeklyReports
     : weeklyReports.filter((report) => report.technician === currentUser.name);
@@ -1429,8 +1420,7 @@ function ReportsPage({
                 <Package size={19} /> تقرير قطع الغيار اليومي
               </h2>
               <p>
-                يظهر لمدير الفريق ومسؤول قطع الغيار ما تم صرفه والمتبقي من كل
-                صنف.
+                Daily issued items and remaining stock for Team Manager and Parts Manager.
               </p>
             </div>
             <button className="primary-button" onClick={onCreateStockReport}>
@@ -1749,7 +1739,7 @@ function UserModal({ form, setForm, editing, save, close }) {
             </label>
           </div>
           <div className="roles-field">
-            <span>الأدوار والصلاحيات</span>
+            <span>Roles & Permissions</span>
             <div className="roles-grid">
               {roleOptions.map((option) => (
                 <label className="role-check" key={option}>
@@ -1769,7 +1759,7 @@ function UserModal({ form, setForm, editing, save, close }) {
                 </label>
               ))}
             </div>
-            <small>يمكن اختيار أكثر من دور للمستخدم نفسه.</small>
+            <small>Users can have more than one role.</small>
           </div>
           <div className="modal-actions">
             <button type="button" className="secondary-button" onClick={close}>
