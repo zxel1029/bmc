@@ -213,7 +213,7 @@ function App() {
   const [parts, setParts] = useState(partsSeed);
   const [issues, setIssues] = useState([]);
   const [partRequests, setPartRequests] = useState(partRequestsSeed);
-  const [stockReports, setStockReports] = useState([]);
+  const [partReports, setPartReports] = useState([]);
   const [weeklyReports, setWeeklyReports] = useState([]);
   const [page, setPage] = useState("لوحة التحكم");
   const [query, setQuery] = useState("");
@@ -395,20 +395,6 @@ function App() {
       },
       ...items,
     ]);
-    setStockReports((items) => [
-      {
-        id: Date.now(),
-        date: new Date().toLocaleDateString("ar-SA"),
-        partName: part.name,
-        quantity,
-        schoolName: schools.find(
-          (school) => school.id === Number(issueForm.schoolId),
-        )?.name,
-        technician: currentUser.name,
-        remaining: part.quantity - quantity,
-      },
-      ...items,
-    ]);
     setIssueForm(emptyIssue);
     setModal(null);
   };
@@ -480,18 +466,6 @@ function App() {
         },
         ...items,
       ]);
-      setStockReports((items) => [
-        {
-          id: Date.now(),
-          date: new Date().toLocaleDateString("ar-SA"),
-          partName: request.partName,
-          quantity: request.quantity,
-          schoolName: request.schoolName,
-          technician: request.requester,
-          remaining: part.quantity - request.quantity,
-        },
-        ...items,
-      ]);
       setPartRequests((items) =>
         items.map((item) =>
           item.id === requestId
@@ -519,18 +493,32 @@ function App() {
       );
     }
   };
-  const createStockReport = () => {
-    setStockReports((items) => [
+  const sendPartReport = () => {
+    const today = new Date().toLocaleDateString("ar-SA");
+    const issuedToday = issues.filter((issue) => issue.date === today);
+    setPartReports((items) => [
       {
         id: Date.now(),
-        date: new Date().toLocaleDateString("ar-SA"),
-        partName: "تقرير المخزون اليومي",
-        quantity: 0,
-        schoolName: "ملخص كامل",
-        technician: currentUser.name,
+        date: today,
+        sentBy: currentUser.name,
+        status: "Sent to Team Manager",
+        issued: issuedToday.map((issue) => ({
+          partName: issue.partName,
+          schoolName: issue.schoolName,
+          quantity: issue.quantity,
+          technician: issue.technician,
+        })),
+        totalIssued: issuedToday.reduce((sum, issue) => sum + issue.quantity, 0),
+        lowStock: parts
+          .filter((part) => part.quantity <= part.minimum)
+          .map((part) => part.name),
         snapshot: parts.map((part) => ({
           name: part.name,
+          code: part.code,
           quantity: part.quantity,
+          minimum: part.minimum,
+          unit: part.unit,
+          low: part.quantity <= part.minimum,
         })),
       },
       ...items,
@@ -750,11 +738,11 @@ function App() {
               users={users}
               parts={parts}
               issues={issues}
-              stockReports={stockReports}
+              partReports={partReports}
               weeklyReports={weeklyReports}
               roles={currentUser.roles}
               role={role}
-              onCreateStockReport={createStockReport}
+              onSendPartReport={sendPartReport}
               onWeeklyReport={() => setModal("weekly")}
             />
           )}
@@ -1756,19 +1744,20 @@ function ReportsPage({
   users,
   parts,
   issues,
-  stockReports,
+  partReports,
   weeklyReports,
   roles,
   currentUser,
   role,
-  onCreateStockReport,
+  onSendPartReport,
   onWeeklyReport,
 }) {
   const hasRole = (requestedRole) =>
     roles.includes("Full Access") ||
     roles.includes(requestedRole) ||
     role === requestedRole;
-  const canViewStock = roles.includes("Parts Manager");
+  const canSendPartReport = hasRole("Parts Manager");
+  const canViewPartReports = hasRole("Team Manager");
   const canSendWeekly = hasRole("Team Manager") || hasRole("Employee");
   const canViewAllWeekly = hasRole("Team Manager");
   const visibleWeeklyReports = canViewAllWeekly
@@ -1788,6 +1777,35 @@ function ReportsPage({
       "_blank",
       "width=900,height=700",
     );
+    if (!printWindow) return;
+    setTimeout(() => {
+      printWindow.focus();
+      printWindow.print();
+      URL.revokeObjectURL(reportUrl);
+    }, 900);
+  };
+  const downloadPartReportPdf = (report) => {
+    const issuedRows = report.issued.length
+      ? report.issued
+          .map(
+            (item) =>
+              `<tr><td>${item.partName}</td><td>${item.schoolName || "—"}</td><td>${item.quantity}</td><td>${item.technician || "—"}</td></tr>`,
+          )
+          .join("")
+      : `<tr><td colspan="4">لا توجد عمليات صرف في هذا اليوم</td></tr>`;
+    const stockRows = report.snapshot.length
+      ? report.snapshot
+          .map(
+            (item) =>
+              `<tr><td>${item.name}</td><td>${item.code || "—"}</td><td>${item.quantity} ${item.unit || ""}</td><td>${item.minimum}</td><td>${item.low ? "إعادة طلب" : "متوفر"}</td></tr>`,
+          )
+          .join("")
+      : `<tr><td colspan="5">لا توجد أصناف في المخزون</td></tr>`;
+    const reportHtml = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>تقرير قطع الغيار اليومي - ${report.date}</title><style>body{font-family:Arial,sans-serif;padding:40px;color:#17233c;line-height:1.9}h1{color:#2369e8;font-size:24px;border-bottom:2px solid #2369e8;padding-bottom:12px}h2{font-size:16px;margin-top:28px}p{font-size:14px;background:#f4f7fb;padding:12px;border-radius:6px}table{width:100%;border-collapse:collapse;margin-top:15px}td,th{border:1px solid #dce4ef;padding:10px;text-align:right}th{background:#edf4ff}small{color:#718098}</style></head><body><h1>تقرير قطع الغيار اليومي</h1><small>Technical Support</small><p><b>أرسله:</b> ${report.sentBy}<br><b>التاريخ:</b> ${report.date}<br><b>الحالة:</b> ${report.status}<br><b>إجمالي القطع المصروفة:</b> ${report.totalIssued}</p><h2>عمليات الصرف لهذا اليوم</h2><table><tr><th>القطعة</th><th>المدرسة</th><th>الكمية</th><th>الفني</th></tr>${issuedRows}</table><h2>حالة المخزون</h2><table><tr><th>القطعة</th><th>الرمز</th><th>المتوفر</th><th>حد إعادة الطلب</th><th>الحالة</th></tr>${stockRows}</table></body></html>`;
+    const reportUrl = URL.createObjectURL(
+      new Blob([reportHtml], { type: "text/html;charset=utf-8" }),
+    );
+    const printWindow = window.open(reportUrl, "_blank", "width=900,height=700");
     if (!printWindow) return;
     setTimeout(() => {
       printWindow.focus();
@@ -1817,7 +1835,7 @@ function ReportsPage({
           <p>أحياء مسجلة</p>
         </div>
       </div>
-      {canViewStock && (
+      {(canSendPartReport || canViewPartReports) && (
         <section className="panel report-section">
           <div className="report-section-head">
             <div>
@@ -1825,13 +1843,16 @@ function ReportsPage({
                 <Package size={19} /> تقرير قطع الغيار اليومي
               </h2>
               <p>
-                Daily issued items and remaining stock for Team Manager and
-                Parts Manager.
+                {canSendPartReport
+                  ? "يجمع مسؤول قطع الغيار عمليات الصرف وحالة المخزون لهذا اليوم ويرسلها إلى مدير الفريق."
+                  : "تقارير قطع الغيار اليومية المرسلة من مسؤول قطع الغيار."}
               </p>
             </div>
-            <button className="primary-button" onClick={onCreateStockReport}>
-              <FileText size={16} /> إنشاء تقرير اليوم
-            </button>
+            {canSendPartReport && (
+              <button className="primary-button" onClick={onSendPartReport}>
+                <Send size={16} /> إرسال تقرير اليوم لمدير الفريق
+              </button>
+            )}
           </div>
           <div className="stock-report-summary">
             <span>
@@ -1841,56 +1862,53 @@ function ReportsPage({
               عمليات الصرف <b>{issues.length}</b>
             </span>
             <span>
-              آخر تقرير <b>{stockReports[0]?.date || "لم ينشأ بعد"}</b>
+              آخر تقرير مُرسل <b>{partReports[0]?.date || "لم يُرسل بعد"}</b>
             </span>
           </div>
-          {stockReports.length ? (
+          {partReports.length ? (
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>التاريخ</th>
-                    <th>القطعة</th>
-                    <th>الكمية المسحوبة</th>
-                    <th>المدرسة</th>
-                    <th>المتبقي</th>
-                    <th>الفني</th>
+                    <th>أرسله</th>
+                    <th>عمليات الصرف</th>
+                    <th>إجمالي القطع المصروفة</th>
+                    <th>أصناف تحتاج طلب</th>
+                    <th>الحالة</th>
+                    <th>PDF</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {stockReports.slice(0, 8).map((report) =>
-                    report.snapshot ? (
-                      report.snapshot.map((item, index) => (
-                        <tr key={`${report.id}-${index}`}>
-                          <td>{report.date}</td>
-                          <td>{item.name}</td>
-                          <td>—</td>
-                          <td>ملخص المخزون</td>
-                          <td>
-                            <strong>{item.quantity}</strong>
-                          </td>
-                          <td>{report.technician}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr key={report.id}>
-                        <td>{report.date}</td>
-                        <td>{report.partName}</td>
-                        <td>{report.quantity}</td>
-                        <td>{report.schoolName}</td>
-                        <td>
-                          <strong>{report.remaining}</strong>
-                        </td>
-                        <td>{report.technician}</td>
-                      </tr>
-                    ),
-                  )}
+                  {partReports.map((report) => (
+                    <tr key={report.id}>
+                      <td>{report.date}</td>
+                      <td>{report.sentBy}</td>
+                      <td>{report.issued.length}</td>
+                      <td>{report.totalIssued}</td>
+                      <td>{report.lowStock.length}</td>
+                      <td>
+                        <span className="status complete">
+                          <i />
+                          {report.status}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          className="pdf-button"
+                          onClick={() => downloadPartReportPdf(report)}
+                        >
+                          <FileText size={14} /> تحميل PDF
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           ) : (
             <div className="empty-state">
-              لا توجد عمليات صرف أو تقارير يومية حتى الآن
+              لم يتم إرسال تقرير قطع غيار يومي بعد
             </div>
           )}
         </section>
