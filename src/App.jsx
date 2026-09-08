@@ -345,7 +345,7 @@ function App() {
     hasRole("Parts Manager") ||
     hasRole("Team Manager") ||
     hasRole("Employee");
-  const canManageParts = hasRole("Parts Manager");
+  const canManageParts = currentUser.roles.includes("Full Access") || currentUser.roles.includes("Parts Manager");
   const canRequestParts =
     hasRole("Full Access") || hasRole("Team Manager") || hasRole("Employee");
   const savePart = (event) => {
@@ -1322,7 +1322,7 @@ function PartsPage({
           <div className="empty-state">لا توجد طلبات قطع غيار</div>
         )}
       </div>
-      <div className="panel parts-panel issue-history">
+      {canManageParts && <div className="panel parts-panel issue-history">
         <div className="panel-header">
           <div>
             <h2>سجل الصرف للمدارس</h2>
@@ -1361,7 +1361,7 @@ function PartsPage({
         ) : (
           <div className="empty-state">لم يتم تسجيل أي عمليات صرف بعد</div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }
