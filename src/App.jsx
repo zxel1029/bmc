@@ -57,13 +57,26 @@ const usersSeed = [
 const partsSeed = [];
 const emptyPart = { name: "", code: "", quantity: 0, minimum: 1, unit: "قطعة" };
 const emptyIssue = { partId: "", quantity: 1, schoolId: "", notes: "" };
+const emptyPartRequest = {
+  partId: "",
+  quantity: 1,
+  schoolId: "",
+  reportNumber: "",
+  notes: "",
+};
+const partRequestsSeed = [];
 const emptyWeeklyReport = {
   schoolIds: [],
   notes: "",
   partsAdded: false,
   partsSchoolIds: [],
 };
-const roleOptions = ["Full Access", "Team Manager", "Employee", "Parts Manager"];
+const roleOptions = [
+  "Full Access",
+  "Team Manager",
+  "Employee",
+  "Parts Manager",
+];
 const emptySchool = {
   name: "",
   director: "",
@@ -85,7 +98,7 @@ function LocationPicker({ onChange }) {
 function Credits() {
   return (
     <div className="credits">
-     <span>•</span> برمجة وتطوير ابراهيم القحطاني
+      <span>•</span> برمجة وتطوير ابراهيم القحطاني
     </div>
   );
 }
@@ -105,10 +118,18 @@ function Login({ onLogin }) {
         </div>
         <div className="tech-scene" aria-hidden="true">
           <div className="tech-grid" />
-          <div className="tech-orbit orbit-one"><span /></div>
-          <div className="tech-orbit orbit-two"><span /></div>
-          <div className="tech-core"><ShieldCheck size={52} /></div>
-          <div className="tech-node node-one" /><div className="tech-node node-two" /><div className="tech-node node-three" />
+          <div className="tech-orbit orbit-one">
+            <span />
+          </div>
+          <div className="tech-orbit orbit-two">
+            <span />
+          </div>
+          <div className="tech-core">
+            <ShieldCheck size={52} />
+          </div>
+          <div className="tech-node node-one" />
+          <div className="tech-node node-two" />
+          <div className="tech-node node-three" />
         </div>
         <div className="art-copy">
           <span>نظام إدارة المدارس الموثوق</span>
@@ -191,6 +212,7 @@ function App() {
   const [users, setUsers] = useState(usersSeed);
   const [parts, setParts] = useState(partsSeed);
   const [issues, setIssues] = useState([]);
+  const [partRequests, setPartRequests] = useState(partRequestsSeed);
   const [stockReports, setStockReports] = useState([]);
   const [weeklyReports, setWeeklyReports] = useState([]);
   const [page, setPage] = useState("لوحة التحكم");
@@ -198,6 +220,7 @@ function App() {
   const [schoolForm, setSchoolForm] = useState(emptySchool);
   const [partForm, setPartForm] = useState(emptyPart);
   const [issueForm, setIssueForm] = useState(emptyIssue);
+  const [partRequestForm, setPartRequestForm] = useState(emptyPartRequest);
   const [weeklyForm, setWeeklyForm] = useState(emptyWeeklyReport);
   const [userForm, setUserForm] = useState({
     name: "",
@@ -229,7 +252,9 @@ function App() {
     return (
       <Login
         onLogin={(username, password) => {
-          const user = users.find((item) => item.username === username && item.password === password);
+          const user = users.find(
+            (item) => item.username === username && item.password === password,
+          );
           if (!user) return false;
           setCurrentUserId(user.id);
           setRole(user.roles[0]);
@@ -315,8 +340,14 @@ function App() {
     setModal("user");
   };
   const canManageUsers = currentUser.roles.includes("Full Access");
-  const canSeeParts = hasRole("Full Access") || hasRole("Parts Manager");
+  const canSeeParts =
+    hasRole("Full Access") ||
+    hasRole("Parts Manager") ||
+    hasRole("Team Manager") ||
+    hasRole("Employee");
   const canManageParts = hasRole("Parts Manager");
+  const canRequestParts =
+    hasRole("Full Access") || hasRole("Team Manager") || hasRole("Employee");
   const savePart = (event) => {
     event.preventDefault();
     if (!partForm.name || !partForm.code) return;
@@ -380,6 +411,113 @@ function App() {
     ]);
     setIssueForm(emptyIssue);
     setModal(null);
+  };
+  const savePartRequest = (event) => {
+    event.preventDefault();
+    const part = parts.find(
+      (item) => item.id === Number(partRequestForm.partId),
+    );
+    const quantity = Number(partRequestForm.quantity);
+    const pendingQuantity = partRequests
+      .filter(
+        (request) =>
+          request.partId === partRequestForm.partId &&
+          request.status === "Pending",
+      )
+      .reduce((sum, request) => sum + request.quantity, 0);
+    if (
+      !part ||
+      !partRequestForm.schoolId ||
+      !partRequestForm.reportNumber ||
+      quantity < 1 ||
+      quantity > part.quantity - pendingQuantity
+    )
+      return;
+    setPartRequests((items) => [
+      {
+        ...partRequestForm,
+        id: Date.now(),
+        partId: Number(partRequestForm.partId),
+        schoolId: Number(partRequestForm.schoolId),
+        quantity,
+        partName: part.name,
+        schoolName: schools.find(
+          (school) => school.id === Number(partRequestForm.schoolId),
+        )?.name,
+        requester: currentUser.name,
+        status: "Pending",
+        createdAt: new Date().toLocaleString("ar-SA"),
+      },
+      ...items,
+    ]);
+    setPartRequestForm(emptyPartRequest);
+    setModal(null);
+  };
+  const updatePartRequest = (requestId, nextStatus) => {
+    const request = partRequests.find((item) => item.id === requestId);
+    if (!request || !canManageParts) return;
+    if (nextStatus === "Approved") {
+      const part = parts.find((item) => item.id === request.partId);
+      if (!part || request.quantity > part.quantity) return;
+      const now = new Date().toLocaleString("ar-SA");
+      setParts((items) =>
+        items.map((item) =>
+          item.id === part.id
+            ? { ...item, quantity: item.quantity - request.quantity }
+            : item,
+        ),
+      );
+      setIssues((items) => [
+        {
+          id: Date.now(),
+          partId: request.partId,
+          quantity: request.quantity,
+          partName: request.partName,
+          schoolName: request.schoolName,
+          technician: request.requester,
+          date: new Date().toLocaleDateString("ar-SA"),
+          notes: `Approved request ${request.reportNumber}`,
+        },
+        ...items,
+      ]);
+      setStockReports((items) => [
+        {
+          id: Date.now(),
+          date: new Date().toLocaleDateString("ar-SA"),
+          partName: request.partName,
+          quantity: request.quantity,
+          schoolName: request.schoolName,
+          technician: request.requester,
+          remaining: part.quantity - request.quantity,
+        },
+        ...items,
+      ]);
+      setPartRequests((items) =>
+        items.map((item) =>
+          item.id === requestId
+            ? {
+                ...item,
+                status: nextStatus,
+                approvedBy: currentUser.name,
+                approvedAt: now,
+              }
+            : item,
+        ),
+      );
+    } else {
+      setPartRequests((items) =>
+        items.map((item) =>
+          item.id === requestId
+            ? {
+                ...item,
+                status: nextStatus,
+                approvedBy: currentUser.name,
+                approvedAt: new Date().toLocaleString("ar-SA"),
+              }
+            : item,
+        ),
+      );
+    }
   };
   const createStockReport = () => {
     setStockReports((items) => [
@@ -595,14 +733,19 @@ function App() {
             <PartsPage
               parts={parts}
               issues={issues}
+              partRequests={partRequests}
+              currentUser={currentUser}
+              canRequestParts={canRequestParts}
               canManageParts={canManageParts}
               onAddPart={() => setModal("part")}
               onIssuePart={() => setModal("issue")}
+              onRequestPart={() => setModal("request")}
+              onUpdateRequest={updatePartRequest}
             />
           )}
           {page === "التقارير" && (
-              <ReportsPage
-                currentUser={currentUser}
+            <ReportsPage
+              currentUser={currentUser}
               schools={schools}
               users={users}
               parts={parts}
@@ -667,6 +810,17 @@ function App() {
           close={() => setModal(null)}
         />
       )}
+      {modal === "request" && (
+        <PartRequestModal
+          form={partRequestForm}
+          setForm={setPartRequestForm}
+          parts={parts}
+          requests={partRequests}
+          schools={schools}
+          save={savePartRequest}
+          close={() => setModal(null)}
+        />
+      )}
       {modal === "weekly" && (
         <WeeklyReportModal
           form={weeklyForm}
@@ -717,7 +871,11 @@ function Dashboard({ schools, users, userName, go }) {
               أهلًا {userName}،<br />
               كل شيء تحت السيطرة.
             </h2>
-            <p>{schools.length ? `تم تسجيل ${schools.length} مدارس في النظام.` : "ابدأ بإضافة أول مدرسة إلى النظام."}</p>
+            <p>
+              {schools.length
+                ? `تم تسجيل ${schools.length} مدارس في النظام.`
+                : "ابدأ بإضافة أول مدرسة إلى النظام."}
+            </p>
             <button className="primary-button" onClick={() => go("المدارس")}>
               مراجعة المدارس <ChevronLeft size={16} />
             </button>
@@ -950,16 +1108,36 @@ function UsersPage({ users, role, canManageUsers, onEdit, remove }) {
     </div>
   );
 }
-function PartsPage({ parts, issues, onAddPart, onIssuePart }) {
+function PartsPage({
+  parts,
+  issues,
+  partRequests,
+  currentUser,
+  canRequestParts,
+  canManageParts,
+  onAddPart,
+  onIssuePart,
+  onRequestPart,
+  onUpdateRequest,
+}) {
   return (
     <div className="parts-page">
       <div className="parts-actions">
-        <button className="primary-button" onClick={onIssuePart}>
-          <Wrench size={17} /> تسجيل صرف لمدرسة
-        </button>
-        <button className="secondary-button" onClick={onAddPart}>
-          <Plus size={17} /> إضافة قطعة للمخزون
-        </button>
+        {canRequestParts && (
+          <button className="primary-button" onClick={onRequestPart}>
+            <ClipboardCheck size={17} /> طلب قطع غيار
+          </button>
+        )}
+        {canManageParts && (
+          <button className="primary-button" onClick={onIssuePart}>
+            <Wrench size={17} /> تسجيل صرف لمدرسة
+          </button>
+        )}
+        {canManageParts && (
+          <button className="secondary-button" onClick={onAddPart}>
+            <Plus size={17} /> إضافة قطعة للمخزون
+          </button>
+        )}
       </div>
       <div className="stats-grid parts-stats">
         <Stat
@@ -1043,6 +1221,106 @@ function PartsPage({ parts, issues, onAddPart, onIssuePart }) {
             </tbody>
           </table>
         </div>
+      </div>
+      <div className="panel parts-panel requests-panel">
+        <div className="panel-header">
+          <div>
+            <h2>طلبات قطع الغيار</h2>
+            <p>
+              {canManageParts
+                ? "راجع الطلبات ووافق عليها أو ارفضها"
+                : "تابع حالة طلباتك المرسلة"}
+            </p>
+          </div>
+          <span className="table-total">
+            {
+              partRequests.filter(
+                (request) =>
+                  canManageParts || request.requester === currentUser.name,
+              ).length
+            }{" "}
+            طلبات
+          </span>
+        </div>
+        {partRequests.filter(
+          (request) => canManageParts || request.requester === currentUser.name,
+        ).length ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>القطعة</th>
+                  <th>الكمية</th>
+                  <th>المدرسة</th>
+                  <th>رقم البلاغ</th>
+                  <th>الطالب</th>
+                  <th>الحالة</th>
+                  <th>الإجراء</th>
+                </tr>
+              </thead>
+              <tbody>
+                {partRequests
+                  .filter(
+                    (request) =>
+                      canManageParts || request.requester === currentUser.name,
+                  )
+                  .map((request) => (
+                    <tr key={request.id}>
+                      <td>
+                        <strong>{request.partName}</strong>
+                      </td>
+                      <td>{request.quantity}</td>
+                      <td>{request.schoolName}</td>
+                      <td className="number-cell">{request.reportNumber}</td>
+                      <td>{request.requester}</td>
+                      <td>
+                        <span
+                          className={
+                            request.status === "Approved"
+                              ? "status complete"
+                              : request.status === "Rejected"
+                                ? "status pending rejected"
+                                : "status pending"
+                          }
+                        >
+                          <i />
+                          {request.status === "Approved"
+                            ? "جاهز"
+                            : request.status === "Rejected"
+                              ? "مرفوض"
+                              : "بانتظار الاعتماد"}
+                        </span>
+                      </td>
+                      <td>
+                        {canManageParts && request.status === "Pending" && (
+                          <div className="row-actions">
+                            <button
+                              className="approve-button"
+                              onClick={() =>
+                                onUpdateRequest(request.id, "Approved")
+                              }
+                            >
+                              موافقة
+                            </button>
+                            <button
+                              className="reject-button"
+                              onClick={() =>
+                                onUpdateRequest(request.id, "Rejected")
+                              }
+                            >
+                              رفض
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-state">لا توجد طلبات قطع غيار</div>
+        )}
       </div>
       <div className="panel parts-panel issue-history">
         <div className="panel-header">
@@ -1239,6 +1517,118 @@ function IssueModal({ form, setForm, parts, schools, save, close }) {
     </div>
   );
 }
+function PartRequestModal({
+  form,
+  setForm,
+  parts,
+  requests,
+  schools,
+  save,
+  close,
+}) {
+  const available = (part) =>
+    part.quantity -
+    requests
+      .filter(
+        (request) => request.partId === part.id && request.status === "Pending",
+      )
+      .reduce((sum, request) => sum + request.quantity, 0);
+  const selectedPart = parts.find((part) => part.id === Number(form.partId));
+  return (
+    <div className="modal-backdrop">
+      <section className="user-modal request-modal">
+        <div className="modal-header">
+          <div>
+            <h2>طلب قطع غيار</h2>
+            <p>اختر قطعة متوفرة وأرسل الطلب إلى مسؤول قطع الغيار.</p>
+          </div>
+          <button className="close-button" onClick={close}>
+            <X size={19} />
+          </button>
+        </div>
+        <form onSubmit={save}>
+          <div className="form-grid">
+            <label>
+              اسم القطعة
+              <select
+                required
+                value={form.partId}
+                onChange={(e) =>
+                  setForm({ ...form, partId: e.target.value, quantity: 1 })
+                }
+              >
+                <option value="">اختر قطعة متوفرة</option>
+                {parts.map((part) => (
+                  <option
+                    key={part.id}
+                    value={part.id}
+                    disabled={available(part) < 1}
+                  >
+                    {part.name} - المتوفر {available(part)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              المدرسة
+              <select
+                required
+                value={form.schoolId}
+                onChange={(e) => setForm({ ...form, schoolId: e.target.value })}
+              >
+                <option value="">اختر المدرسة</option>
+                {schools.map((school) => (
+                  <option key={school.id} value={school.id}>
+                    {school.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              العدد المطلوب
+              <input
+                required
+                type="number"
+                min="1"
+                max={selectedPart ? Math.max(1, available(selectedPart)) : 1}
+                value={form.quantity}
+                onChange={(e) => setForm({ ...form, quantity: e.target.value })}
+              />
+            </label>
+            <label>
+              رقم البلاغ
+              <input
+                required
+                value={form.reportNumber}
+                onChange={(e) =>
+                  setForm({ ...form, reportNumber: e.target.value })
+                }
+                placeholder="رقم البلاغ"
+              />
+            </label>
+          </div>
+          <label className="report-notes">
+            ملاحظات الطلب
+            <textarea
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              placeholder="اذكر سبب الاحتياج أو مكان التركيب"
+            />
+          </label>
+          <div className="modal-actions">
+            <button type="button" className="secondary-button" onClick={close}>
+              إلغاء
+            </button>
+            <button className="primary-button">
+              <Send size={17} />
+              إرسال لمسؤول القطع
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
 function WeeklyReportModal({ form, setForm, schools, save, close }) {
   const [query, setQuery] = useState("");
   const filteredSchools = schools.filter((school) =>
@@ -1390,8 +1780,14 @@ function ReportsPage({
       ? (report.partsSchools || []).join("، ") || "لم تحدد مدرسة"
       : "لا";
     const reportHtml = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>التقرير الأسبوعي - ${report.technician}</title><style>body{font-family:Arial,sans-serif;padding:40px;color:#17233c;line-height:1.9}h1{color:#2369e8;font-size:24px;border-bottom:2px solid #2369e8;padding-bottom:12px}h2{font-size:16px;margin-top:28px}p{font-size:14px;background:#f4f7fb;padding:12px;border-radius:6px}table{width:100%;border-collapse:collapse;margin-top:15px}td,th{border:1px solid #dce4ef;padding:10px;text-align:right}th{background:#edf4ff}small{color:#718098}</style></head><body><h1>التقرير الأسبوعي للفني</h1><small>Technical Support</small><p><b>الفني:</b> ${report.technician}<br><b>التاريخ:</b> ${report.date}<br><b>الحالة:</b> ${report.status}</p><h2>المدارس التي تمت مباشرتها</h2><table><tr><th>المدارس</th></tr><tr><td>${schoolsList}</td></tr></table><h2>قطع الغيار</h2><table><tr><th>هل تم إضافة قطع غيار؟</th><th>المدارس المستفيدة</th></tr><tr><td>${report.partsAdded ? "نعم" : "لا"}</td><td>${partsList}</td></tr></table><h2>الملاحظات</h2><p>${report.notes || "لا توجد ملاحظات"}</p></body></html>`;
-    const reportUrl = URL.createObjectURL(new Blob([reportHtml], { type: "text/html;charset=utf-8" }));
-    const printWindow = window.open(reportUrl, "_blank", "width=900,height=700");
+    const reportUrl = URL.createObjectURL(
+      new Blob([reportHtml], { type: "text/html;charset=utf-8" }),
+    );
+    const printWindow = window.open(
+      reportUrl,
+      "_blank",
+      "width=900,height=700",
+    );
     if (!printWindow) return;
     setTimeout(() => {
       printWindow.focus();
@@ -1429,7 +1825,8 @@ function ReportsPage({
                 <Package size={19} /> تقرير قطع الغيار اليومي
               </h2>
               <p>
-                Daily issued items and remaining stock for Team Manager and Parts Manager.
+                Daily issued items and remaining stock for Team Manager and
+                Parts Manager.
               </p>
             </div>
             <button className="primary-button" onClick={onCreateStockReport}>
@@ -1533,7 +1930,11 @@ function ReportsPage({
                     <tr key={report.id}>
                       <td>{report.technician}</td>
                       <td>{report.schools.join("، ")}</td>
-                      <td>{report.partsAdded ? `نعم: ${(report.partsSchools || []).join("، ") || "لم تحدد مدرسة"}` : "لا"}</td>
+                      <td>
+                        {report.partsAdded
+                          ? `نعم: ${(report.partsSchools || []).join("، ") || "لم تحدد مدرسة"}`
+                          : "لا"}
+                      </td>
                       <td>{report.date}</td>
                       <td>
                         <span className="status complete">
@@ -1542,7 +1943,14 @@ function ReportsPage({
                         </span>
                       </td>
                       <td>{report.notes || "—"}</td>
-                      <td><button className="pdf-button" onClick={() => downloadWeeklyPdf(report)}><FileText size={14} /> تحميل PDF</button></td>
+                      <td>
+                        <button
+                          className="pdf-button"
+                          onClick={() => downloadWeeklyPdf(report)}
+                        >
+                          <FileText size={14} /> تحميل PDF
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
