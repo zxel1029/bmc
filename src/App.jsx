@@ -1,5 +1,14 @@
-import { useMemo, useState } from "react";
-import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
+import { useEffect, useMemo, useState } from "react";
+import {
+  CircleMarker,
+  MapContainer,
+  Marker,
+  Popup,
+  TileLayer,
+  Tooltip,
+  useMap,
+  useMapEvents,
+} from "react-leaflet";
 import L from "leaflet";
 import {
   Bell,
@@ -14,6 +23,7 @@ import {
   LockKeyhole,
   LogOut,
   Mail,
+  Map as MapIcon,
   MapPin,
   Menu,
   MoreHorizontal,
@@ -84,15 +94,60 @@ const emptySchool = {
   type: "مدرسة",
   gender: "بنين",
   city: "",
+  neighborhoodId: "",
   lat: 24.7743,
   lng: 46.7386,
   status: "مكتمل",
 };
+const emptyZone = {
+  name: "",
+  employeeId: "",
+  lat: 24.7136,
+  lng: 46.6753,
+};
+const ZONE_COLORS = [
+  "#2563eb",
+  "#16a34a",
+  "#ea580c",
+  "#9333ea",
+  "#dc2626",
+  "#0891b2",
+  "#ca8a04",
+  "#db2777",
+  "#4f46e5",
+  "#0d9488",
+];
+const zoneDivIcon = (color) =>
+  L.divIcon({
+    className: "zone-marker",
+    html: `<span style="background:${color}">👤</span>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 17],
+    popupAnchor: [0, -18],
+  });
 function LocationPicker({ onChange }) {
   useMapEvents({
     click: ({ latlng }) =>
       onChange({ lat: latlng.lat.toFixed(4), lng: latlng.lng.toFixed(4) }),
   });
+  return null;
+}
+function FitBounds({ points }) {
+  const map = useMap();
+  const key = points
+    .map((point) => `${point.id}:${point.lat}:${point.lng}`)
+    .join("|");
+  useEffect(() => {
+    const coords = key
+      .split("|")
+      .filter(Boolean)
+      .map((entry) => {
+        const [, lat, lng] = entry.split(":");
+        return [Number(lat), Number(lng)];
+      });
+    if (!coords.length) return;
+    map.fitBounds(L.latLngBounds(coords), { padding: [60, 60], maxZoom: 14 });
+  }, [key, map]);
   return null;
 }
 function Credits() {
@@ -215,6 +270,7 @@ function App() {
   const [partRequests, setPartRequests] = useState(partRequestsSeed);
   const [partReports, setPartReports] = useState([]);
   const [weeklyReports, setWeeklyReports] = useState([]);
+  const [neighborhoods, setNeighborhoods] = useState([]);
   const [page, setPage] = useState("لوحة التحكم");
   const [query, setQuery] = useState("");
   const [schoolForm, setSchoolForm] = useState(emptySchool);
@@ -222,6 +278,8 @@ function App() {
   const [issueForm, setIssueForm] = useState(emptyIssue);
   const [partRequestForm, setPartRequestForm] = useState(emptyPartRequest);
   const [weeklyForm, setWeeklyForm] = useState(emptyWeeklyReport);
+  const [zoneForm, setZoneForm] = useState(emptyZone);
+  const [editingZone, setEditingZone] = useState(null);
   const [userForm, setUserForm] = useState({
     name: "",
     username: "",
@@ -248,6 +306,35 @@ function App() {
     currentUser.roles.includes("Full Access") ||
     currentUser.roles.includes(requestedRole) ||
     role === requestedRole;
+  const zoneEmployees = users.filter((user) =>
+    user.roles.includes("Employee"),
+  );
+  const zoneColor = (userId) => {
+    const index = zoneEmployees.findIndex((user) => user.id === userId);
+    return index === -1
+      ? "#64748b"
+      : ZONE_COLORS[index % ZONE_COLORS.length];
+  };
+  const isFieldEmployee =
+    !currentUser.roles.includes("Full Access") &&
+    !currentUser.roles.includes("Team Manager") &&
+    currentUser.roles.includes("Employee");
+  const canManageZones =
+    currentUser.roles.includes("Full Access") ||
+    currentUser.roles.includes("Team Manager");
+  const myZoneIds = neighborhoods
+    .filter((zone) => zone.employeeId === currentUser.id)
+    .map((zone) => zone.id);
+  const visibleNeighborhoods =
+    canManageZones || !isFieldEmployee
+      ? neighborhoods
+      : neighborhoods.filter((zone) => zone.employeeId === currentUser.id);
+  const scopedSchools = isFieldEmployee
+    ? filtered.filter((school) => myZoneIds.includes(school.neighborhoodId))
+    : filtered;
+  const mapSchools = isFieldEmployee
+    ? schools.filter((school) => myZoneIds.includes(school.neighborhoodId))
+    : schools;
   if (!loggedIn)
     return (
       <Login
@@ -552,12 +639,83 @@ function App() {
     setSchoolForm(school);
     setModal("school");
   };
+  const openZone = (zone = null) => {
+    setEditingZone(zone?.id || null);
+    setZoneForm(
+      zone
+        ? {
+            name: zone.name,
+            employeeId: String(zone.employeeId),
+            lat: zone.lat,
+            lng: zone.lng,
+          }
+        : emptyZone,
+    );
+    setModal("zone");
+  };
+  const saveZone = (event) => {
+    event.preventDefault();
+    if (!zoneForm.name || !zoneForm.employeeId) return;
+    const now = new Date().toLocaleString("ar-SA");
+    setNeighborhoods((items) =>
+      editingZone
+        ? items.map((item) =>
+            item.id === editingZone
+              ? {
+                  ...item,
+                  name: zoneForm.name,
+                  employeeId: Number(zoneForm.employeeId),
+                  lat: Number(zoneForm.lat),
+                  lng: Number(zoneForm.lng),
+                  updatedAt: now,
+                }
+              : item,
+          )
+        : [
+            {
+              id: Date.now(),
+              name: zoneForm.name,
+              employeeId: Number(zoneForm.employeeId),
+              lat: Number(zoneForm.lat),
+              lng: Number(zoneForm.lng),
+              addedBy: currentUser.name,
+              addedAt: now,
+            },
+            ...items,
+          ],
+    );
+    setZoneForm(emptyZone);
+    setEditingZone(null);
+    setModal(null);
+  };
+  const reassignZone = (zoneId, employeeId) =>
+    setNeighborhoods((items) =>
+      items.map((item) =>
+        item.id === zoneId
+          ? { ...item, employeeId: Number(employeeId) }
+          : item,
+      ),
+    );
+  const removeZone = (zoneId) => {
+    setNeighborhoods((items) => items.filter((item) => item.id !== zoneId));
+    setSchools((items) =>
+      items.map((school) =>
+        school.neighborhoodId === zoneId
+          ? { ...school, neighborhoodId: "", city: "" }
+          : school,
+      ),
+    );
+  };
   const titles = {
     "لوحة التحكم": [
       "نظرة عامة",
       "تابع أداء النظام وبيانات المدارس من مكان واحد",
     ],
     المدارس: ["المدارس", "تابع بيانات المدارس ومواقعها الجغرافية من مكان واحد"],
+    الخريطة: [
+      "خريطة الزونات",
+      "وزّع الأحياء على الموظفين الميدانيين وتابع تغطية كل زون",
+    ],
     "قطع الغيار": [
       "قطع الغيار",
       "أدر المخزون وسجل القطع التي تم تسليمها للمدارس",
@@ -570,6 +728,7 @@ function App() {
   const navItems = [
     ["لوحة التحكم", LayoutDashboard],
     ["المدارس", Building2],
+    ["الخريطة", MapIcon],
     ...(canSeeParts ? [["قطع الغيار", Package]] : []),
     ...(canManageUsers ? [["المستخدمون", Users]] : []),
     ["التقارير", FileText],
@@ -685,6 +844,11 @@ function App() {
                 <UserPlus size={18} /> إضافة مستخدم
               </button>
             )}
+            {page === "الخريطة" && canManageZones && (
+              <button className="primary-button" onClick={() => openZone()}>
+                <Plus size={18} /> إضافة حي
+              </button>
+            )}
           </div>
           {page === "لوحة التحكم" && (
             <Dashboard
@@ -696,7 +860,7 @@ function App() {
           )}
           {page === "المدارس" && (
             <SchoolsPage
-              schools={filtered}
+              schools={scopedSchools}
               query={query}
               setQuery={setQuery}
               openEdit={openSchool}
@@ -704,6 +868,23 @@ function App() {
                 setSchools((items) => items.filter((item) => item.id !== id))
               }
               role={role}
+            />
+          )}
+          {page === "الخريطة" && (
+            <MapPage
+              neighborhoods={visibleNeighborhoods}
+              allNeighborhoods={neighborhoods}
+              schools={mapSchools}
+              users={users}
+              currentUser={currentUser}
+              canManage={canManageZones}
+              isFieldEmployee={isFieldEmployee}
+              zoneEmployees={zoneEmployees}
+              colorFor={zoneColor}
+              onAddZone={() => openZone()}
+              onEditZone={openZone}
+              onDeleteZone={removeZone}
+              onReassign={reassignZone}
             />
           )}
           {page === "المستخدمون" && canManageUsers && (
@@ -767,8 +948,23 @@ function App() {
           form={schoolForm}
           setForm={setSchoolForm}
           editing={editing}
+          neighborhoods={neighborhoods}
           save={saveSchool}
           close={() => setModal(null)}
+        />
+      )}
+      {modal === "zone" && (
+        <ZoneModal
+          form={zoneForm}
+          setForm={setZoneForm}
+          editing={Boolean(editingZone)}
+          employees={zoneEmployees}
+          save={saveZone}
+          close={() => {
+            setEditingZone(null);
+            setZoneForm(emptyZone);
+            setModal(null);
+          }}
         />
       )}
       {modal === "user" && (
@@ -1992,7 +2188,338 @@ function SimplePage({ icon: Icon, title, text }) {
     </div>
   );
 }
-function SchoolModal({ form, setForm, editing, save, close }) {
+function ZoneLegend({ employees, neighborhoods, colorFor }) {
+  return (
+    <div className="zone-legend">
+      <strong>الموظفون والزونات</strong>
+      {employees.length ? (
+        employees.map((employee) => (
+          <div className="zone-legend-row" key={employee.id}>
+            <span
+              className="zone-dot"
+              style={{ background: colorFor(employee.id) }}
+            />
+            <span className="zone-legend-name">{employee.name}</span>
+            <span className="zone-legend-count">
+              {
+                neighborhoods.filter((zone) => zone.employeeId === employee.id)
+                  .length
+              }{" "}
+              حي
+            </span>
+          </div>
+        ))
+      ) : (
+        <small>لا يوجد موظفون ميدانيون بعد</small>
+      )}
+    </div>
+  );
+}
+function MapPage({
+  neighborhoods,
+  allNeighborhoods,
+  schools,
+  users,
+  currentUser,
+  canManage,
+  isFieldEmployee,
+  zoneEmployees,
+  colorFor,
+  onAddZone,
+  onEditZone,
+  onDeleteZone,
+  onReassign,
+}) {
+  const employeeName = (id) =>
+    users.find((user) => user.id === id)?.name || "غير معيّن";
+  const zoneSchoolCount = (zoneId) =>
+    schools.filter((school) => school.neighborhoodId === zoneId).length;
+  const myZone = allNeighborhoods.filter(
+    (zone) => zone.employeeId === currentUser.id,
+  );
+  return (
+    <div className="map-page">
+      <div className="map-layout">
+        <div className="panel map-panel">
+          <div className="zone-map">
+            <MapContainer
+              center={[24.7136, 46.6753]}
+              zoom={11}
+              scrollWheelZoom
+            >
+              <TileLayer
+                attribution="&copy; OpenStreetMap"
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <FitBounds points={neighborhoods} />
+              {neighborhoods.map((zone) => (
+                <Marker
+                  key={zone.id}
+                  position={[zone.lat, zone.lng]}
+                  icon={zoneDivIcon(colorFor(zone.employeeId))}
+                >
+                  <Tooltip direction="top" offset={[0, -16]}>
+                    {zone.name}
+                  </Tooltip>
+                  <Popup>
+                    <div className="zone-popup">
+                      <strong>{zone.name}</strong>
+                      <span>الموظف: {employeeName(zone.employeeId)}</span>
+                      <span>المدارس: {zoneSchoolCount(zone.id)}</span>
+                      {canManage && (
+                        <div className="zone-popup-actions">
+                          <button onClick={() => onEditZone(zone)}>
+                            تعديل
+                          </button>
+                          <button onClick={() => onDeleteZone(zone.id)}>
+                            حذف
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </Popup>
+                </Marker>
+              ))}
+              {schools
+                .filter((school) =>
+                  neighborhoods.some((zone) => zone.id === school.neighborhoodId),
+                )
+                .map((school) => {
+                  const zone = neighborhoods.find(
+                    (item) => item.id === school.neighborhoodId,
+                  );
+                  return (
+                    <CircleMarker
+                      key={`school-${school.id}`}
+                      center={[Number(school.lat), Number(school.lng)]}
+                      radius={6}
+                      pathOptions={{
+                        color: "#ffffff",
+                        weight: 2,
+                        fillColor: colorFor(zone?.employeeId),
+                        fillOpacity: 1,
+                      }}
+                    >
+                      <Tooltip direction="top">{school.name}</Tooltip>
+                    </CircleMarker>
+                  );
+                })}
+            </MapContainer>
+          </div>
+          <ZoneLegend
+            employees={zoneEmployees}
+            neighborhoods={allNeighborhoods}
+            colorFor={colorFor}
+          />
+        </div>
+        <aside className="panel zone-side">
+          {canManage ? (
+            <>
+              <div className="zone-side-head">
+                <h2>توزيع الأحياء</h2>
+                <button className="primary-button" onClick={onAddZone}>
+                  <Plus size={16} /> إضافة حي
+                </button>
+              </div>
+              {zoneEmployees.length ? (
+                zoneEmployees.map((employee) => {
+                  const list = allNeighborhoods.filter(
+                    (zone) => zone.employeeId === employee.id,
+                  );
+                  return (
+                    <div className="zone-emp-block" key={employee.id}>
+                      <div className="zone-emp-title">
+                        <span
+                          className="zone-dot"
+                          style={{ background: colorFor(employee.id) }}
+                        />
+                        <strong>{employee.name}</strong>
+                        <span className="zone-legend-count">
+                          {list.length} حي
+                        </span>
+                      </div>
+                      {list.length ? (
+                        <ul className="zone-list">
+                          {list.map((zone) => (
+                            <li key={zone.id}>
+                              <span className="zone-list-name">{zone.name}</span>
+                              <span className="zone-list-schools">
+                                {zoneSchoolCount(zone.id)} مدرسة
+                              </span>
+                              <select
+                                value={zone.employeeId}
+                                onChange={(e) =>
+                                  onReassign(zone.id, e.target.value)
+                                }
+                              >
+                                {zoneEmployees.map((option) => (
+                                  <option key={option.id} value={option.id}>
+                                    {option.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                className="zone-remove"
+                                title="حذف الحي"
+                                onClick={() => onDeleteZone(zone.id)}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="zone-empty">لا توجد أحياء معيّنة</p>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="empty-state">
+                  أضف موظفين بصلاحية Employee من صفحة المستخدمين أولاً
+                </div>
+              )}
+            </>
+          ) : isFieldEmployee ? (
+            <>
+              <div className="zone-side-head">
+                <h2>الزون الخاص بك</h2>
+                <span
+                  className="zone-dot"
+                  style={{ background: colorFor(currentUser.id) }}
+                />
+              </div>
+              {myZone.length ? (
+                <ul className="zone-list">
+                  {myZone.map((zone) => (
+                    <li key={zone.id}>
+                      <span className="zone-list-name">{zone.name}</span>
+                      <span className="zone-list-schools">
+                        {zoneSchoolCount(zone.id)} مدرسة
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="empty-state">لم يتم تعيين زون لك بعد</div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="zone-side-head">
+                <h2>كل الزونات</h2>
+              </div>
+              <ZoneLegend
+                employees={zoneEmployees}
+                neighborhoods={allNeighborhoods}
+                colorFor={colorFor}
+              />
+            </>
+          )}
+        </aside>
+      </div>
+    </div>
+  );
+}
+function ZoneModal({ form, setForm, editing, employees, save, close }) {
+  return (
+    <div className="modal-backdrop">
+      <section className="school-modal">
+        <div className="modal-header">
+          <div>
+            <h2>{editing ? "تعديل الحي" : "إضافة حي جديد"}</h2>
+            <p>اكتب اسم الحي، اختر الموظف، ثم اضغط على الخريطة لتحديد موقعه</p>
+          </div>
+          <button className="close-button" onClick={close}>
+            <X size={19} />
+          </button>
+        </div>
+        <form onSubmit={save}>
+          <div className="form-grid">
+            <label>
+              اسم الحي
+              <input
+                required
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="مثال: حي الياسمين"
+              />
+            </label>
+            <label>
+              الموظف المسؤول
+              <select
+                required
+                value={form.employeeId}
+                onChange={(e) =>
+                  setForm({ ...form, employeeId: e.target.value })
+                }
+              >
+                <option value="">اختر الموظف</option>
+                {employees.map((employee) => (
+                  <option key={employee.id} value={employee.id}>
+                    {employee.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="location-heading">
+            <div>
+              <h3>موقع الحي</h3>
+              <p>اضغط على الخريطة لتحديد المركز التقريبي للحي</p>
+            </div>
+            <MapPin size={20} />
+          </div>
+          <div className="form-map">
+            <MapContainer
+              center={[Number(form.lat), Number(form.lng)]}
+              zoom={11}
+              scrollWheelZoom={false}
+            >
+              <TileLayer
+                attribution="&copy; OpenStreetMap"
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <LocationPicker
+                onChange={(coords) => setForm({ ...form, ...coords })}
+              />
+              <Marker
+                position={[Number(form.lat), Number(form.lng)]}
+                icon={markerIcon}
+              />
+            </MapContainer>
+          </div>
+          <div className="coordinates">
+            <label>
+              خط العرض
+              <input
+                value={form.lat}
+                onChange={(e) => setForm({ ...form, lat: e.target.value })}
+              />
+            </label>
+            <label>
+              خط الطول
+              <input
+                value={form.lng}
+                onChange={(e) => setForm({ ...form, lng: e.target.value })}
+              />
+            </label>
+          </div>
+          <div className="modal-actions">
+            <button type="button" className="secondary-button" onClick={close}>
+              إلغاء
+            </button>
+            <button className="primary-button">
+              <Plus size={17} />
+              {editing ? "حفظ التعديلات" : "إضافة الحي"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+function SchoolModal({ form, setForm, editing, neighborhoods, save, close }) {
   return (
     <div className="modal-backdrop">
       <section className="school-modal">
@@ -2034,12 +2561,35 @@ function SchoolModal({ form, setForm, editing, save, close }) {
               />
             </label>
             <label>
-              اسم الحي
-              <input
-                value={form.city}
-                onChange={(e) => setForm({ ...form, city: e.target.value })}
-                placeholder="مثال: حي الياسمين"
-              />
+              الحي
+              {neighborhoods.length ? (
+                <select
+                  value={form.neighborhoodId || ""}
+                  onChange={(e) => {
+                    const zone = neighborhoods.find(
+                      (item) => String(item.id) === e.target.value,
+                    );
+                    setForm({
+                      ...form,
+                      neighborhoodId: zone ? zone.id : "",
+                      city: zone ? zone.name : "",
+                    });
+                  }}
+                >
+                  <option value="">— اختر الحي —</option>
+                  {neighborhoods.map((zone) => (
+                    <option key={zone.id} value={zone.id}>
+                      {zone.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={form.city}
+                  onChange={(e) => setForm({ ...form, city: e.target.value })}
+                  placeholder="أضف الأحياء من صفحة الخريطة أولاً"
+                />
+              )}
             </label>
             <label>
               نوع المنشأة
