@@ -18,6 +18,7 @@ import {
   ChevronLeft,
   CircleHelp,
   ClipboardCheck,
+  Download,
   Edit3,
   FileText,
   LayoutDashboard,
@@ -35,6 +36,7 @@ import {
   Settings,
   ShieldCheck,
   Trash2,
+  Upload,
   UserPlus,
   UserRound,
   Users,
@@ -307,6 +309,7 @@ function App() {
   });
   const [editingUser, setEditingUser] = useState(null);
   const [editing, setEditing] = useState(null);
+  const [importResult, setImportResult] = useState(null);
   const [modal, setModal] = useState(null);
   const [role, setRole] = useState("Full Access");
   const [userMenu, setUserMenu] = useState(false);
@@ -413,6 +416,132 @@ function App() {
     );
     setModal(null);
   };
+  const exportSchools = async () => {
+    const XLSX = await import("xlsx");
+    const rows = schools.map((school) => ({
+      "اسم المدرسة": school.name,
+      "مدير المدرسة": school.director,
+      "الرقم الوزاري": school.ministryId,
+      الحي: school.city || "",
+      "نوع المنشأة": school.type,
+      الجنس: school.gender,
+      "خط العرض": school.lat,
+      "خط الطول": school.lng,
+      الحالة: school.status,
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(rows, {
+      header: [
+        "اسم المدرسة",
+        "مدير المدرسة",
+        "الرقم الوزاري",
+        "الحي",
+        "نوع المنشأة",
+        "الجنس",
+        "خط العرض",
+        "خط الطول",
+        "الحالة",
+      ],
+    });
+    worksheet["!cols"] = [
+      { wch: 26 },
+      { wch: 20 },
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 12 },
+      { wch: 8 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 10 },
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "المدارس");
+    XLSX.writeFile(
+      workbook,
+      `مدارس-${new Date().toISOString().slice(0, 10)}.xlsx`,
+    );
+  };
+  const importSchools = async (file) => {
+    if (!file) return;
+    setImportResult(null);
+    const XLSX = await import("xlsx");
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const workbook = XLSX.read(event.target.result, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+        const pickFrom = (row) => (...keys) => {
+          for (const key of keys) {
+            const match = Object.keys(row).find(
+              (rk) => String(rk).trim() === key,
+            );
+            if (match && String(row[match]).trim() !== "")
+              return String(row[match]).trim();
+          }
+          return "";
+        };
+        const now = new Date().toLocaleString("ar-SA");
+        const next = [...schools];
+        let added = 0;
+        let updated = 0;
+        let skipped = 0;
+        rows.forEach((row, index) => {
+          const pick = pickFrom(row);
+          const name = pick("اسم المدرسة", "المدرسة", "الاسم");
+          const director = pick("مدير المدرسة", "المدير", "اسم المدير");
+          const ministryId = pick("الرقم الوزاري", "الرقم", "رقم الوزارة");
+          if (!name || !director || !ministryId) {
+            skipped += 1;
+            return;
+          }
+          const lat = Number(pick("خط العرض", "lat", "latitude")) || 24.7743;
+          const lng = Number(pick("خط الطول", "lng", "longitude")) || 46.7386;
+          const district = districtForPoint(lat, lng);
+          const typeRaw = pick("نوع المنشأة", "النوع", "نوع");
+          const genderRaw = pick("الجنس", "النوع الاجتماعي", "بنين/بنات");
+          const record = {
+            name,
+            director,
+            ministryId,
+            type: typeRaw.includes("مجمع") ? "مجمع مدارس" : "مدرسة",
+            gender: genderRaw.includes("بنات") ? "بنات" : "بنين",
+            lat,
+            lng,
+            neighborhoodId: district ? district.id : "",
+            city: district ? district.name : pick("الحي", "المنطقة"),
+            status: "مكتمل",
+          };
+          const existingIndex = next.findIndex(
+            (item) => String(item.ministryId) === ministryId,
+          );
+          if (existingIndex >= 0) {
+            next[existingIndex] = {
+              ...next[existingIndex],
+              ...record,
+              updatedBy: currentUser.name,
+              updatedAt: now,
+            };
+            updated += 1;
+          } else {
+            next.unshift({
+              ...record,
+              id: Date.now() + index,
+              addedBy: currentUser.name,
+              addedAt: now,
+              updatedBy: currentUser.name,
+              updatedAt: now,
+            });
+            added += 1;
+          }
+        });
+        setSchools(next);
+        setImportResult({ added, updated, skipped, total: rows.length });
+      } catch {
+        setImportResult({ error: true });
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
   const saveUser = (event) => {
     event.preventDefault();
     if (!userForm.name || !userForm.username || !userForm.roles.length) return;
@@ -456,6 +585,7 @@ function App() {
     setModal("user");
   };
   const canManageUsers = currentUser.roles.includes("Full Access");
+  const canImportExport = currentUser.roles.includes("Full Access");
   const canSeeParts =
     hasRole("Full Access") ||
     hasRole("Parts Manager") ||
@@ -860,6 +990,11 @@ function App() {
                 setSchools((items) => items.filter((item) => item.id !== id))
               }
               role={role}
+              canImportExport={canImportExport}
+              onExport={exportSchools}
+              onImport={importSchools}
+              importResult={importResult}
+              clearImportResult={() => setImportResult(null)}
             />
           )}
           {page === "الخريطة" && (
@@ -1087,7 +1222,19 @@ function Stat({ icon: Icon, color, label, value }) {
     </div>
   );
 }
-function SchoolsPage({ schools, query, setQuery, openEdit, remove, role }) {
+function SchoolsPage({
+  schools,
+  query,
+  setQuery,
+  openEdit,
+  remove,
+  role,
+  canImportExport,
+  onExport,
+  onImport,
+  importResult,
+  clearImportResult,
+}) {
   return (
     <div className="panel schools-panel">
       <div className="panel-header">
@@ -1106,10 +1253,47 @@ function SchoolsPage({ schools, query, setQuery, openEdit, remove, role }) {
             placeholder="ابحث باسم المدرسة أو الرقم الوزاري..."
           />
         </div>
-        <button className="filter-button">
-          كل الأحياء <ChevronDown size={15} />
-        </button>
+        {canImportExport && (
+          <>
+            <label className="filter-button io-button">
+              <Upload size={15} /> استيراد Excel
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                hidden
+                onChange={(event) => {
+                  onImport(event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+            <button className="filter-button io-button" onClick={onExport}>
+              <Download size={15} /> تصدير Excel
+            </button>
+          </>
+        )}
       </div>
+      {canImportExport && importResult && (
+        <div
+          className={
+            importResult.error
+              ? "import-result error"
+              : "import-result"
+          }
+        >
+          {importResult.error ? (
+            <span>تعذّر قراءة الملف. تأكد أنه ملف Excel صحيح.</span>
+          ) : (
+            <span>
+              تم الاستيراد: أُضيفت {importResult.added} مدرسة، حُدّثت{" "}
+              {importResult.updated}، وتُخطّيت {importResult.skipped} صف ناقص.
+            </span>
+          )}
+          <button onClick={clearImportResult}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
       <div className="table-wrap">
         <table>
           <thead>
