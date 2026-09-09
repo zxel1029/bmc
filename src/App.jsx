@@ -11,6 +11,7 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import riyadhDistricts from "./data/riyadhDistricts.json";
+import { api, getToken, setToken } from "./api";
 import {
   Bell,
   Building2,
@@ -56,18 +57,6 @@ const markerIcon = new L.Icon({
   iconSize: [25, 41],
   iconAnchor: [12, 41],
 });
-const schoolsSeed = [];
-const usersSeed = [
-  {
-    id: 1,
-    name: "ابراهيم القحطاني",
-    username: "ebraqg1029",
-    roles: ["Full Access"],
-    password: "123456",
-    status: "نشط",
-  },
-];
-const partsSeed = [];
 const emptyPart = { name: "", code: "", quantity: 0, minimum: 1, unit: "قطعة" };
 const emptyIssue = { partId: "", quantity: 1, schoolId: "", notes: "" };
 const emptyPartRequest = {
@@ -77,7 +66,6 @@ const emptyPartRequest = {
   reportNumber: "",
   notes: "",
 };
-const partRequestsSeed = [];
 const emptyWeeklyReport = {
   schoolIds: [],
   notes: "",
@@ -183,6 +171,7 @@ function Login({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   return (
     <div className="login-page" dir="rtl">
       <div className="login-art">
@@ -229,10 +218,13 @@ function Login({ onLogin }) {
           <span>سجّل الدخول للوصول إلى لوحة التحكم</span>
         </div>
         <form
-          onSubmit={(event) => {
+          onSubmit={async (event) => {
             event.preventDefault();
-            const valid = onLogin(username, password);
-            if (!valid) setError("Invalid username or password");
+            setError("");
+            setSubmitting(true);
+            const message = await onLogin(username, password);
+            setSubmitting(false);
+            if (message) setError(message);
           }}
         >
           <label>
@@ -268,8 +260,9 @@ function Login({ onLogin }) {
             <button type="button">نسيت كلمة المرور؟</button>
           </div>
           {error && <p className="login-error">{error}</p>}
-          <button className="login-button">
-            تسجيل الدخول <ChevronLeft size={17} />
+          <button className="login-button" disabled={submitting}>
+            {submitting ? "جارٍ الدخول…" : "تسجيل الدخول"}
+            <ChevronLeft size={17} />
           </button>
         </form>
         <small className="login-footer">
@@ -282,13 +275,14 @@ function Login({ onLogin }) {
 }
 
 function App() {
+  const [booting, setBooting] = useState(Boolean(getToken()));
   const [loggedIn, setLoggedIn] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(null);
-  const [schools, setSchools] = useState(schoolsSeed);
-  const [users, setUsers] = useState(usersSeed);
-  const [parts, setParts] = useState(partsSeed);
+  const [schools, setSchools] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [parts, setParts] = useState([]);
   const [issues, setIssues] = useState([]);
-  const [partRequests, setPartRequests] = useState(partRequestsSeed);
+  const [partRequests, setPartRequests] = useState([]);
   const [partReports, setPartReports] = useState([]);
   const [weeklyReports, setWeeklyReports] = useState([]);
   const [zoneAssignments, setZoneAssignments] = useState({});
@@ -313,17 +307,96 @@ function App() {
   const [modal, setModal] = useState(null);
   const [role, setRole] = useState("Full Access");
   const [userMenu, setUserMenu] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const applyBootstrap = (data) => {
+    setUsers(data.users || []);
+    setSchools(data.schools || []);
+    setParts(data.parts || []);
+    setIssues(data.issues || []);
+    setPartRequests(data.partRequests || []);
+    setPartReports(data.partReports || []);
+    setWeeklyReports(data.weeklyReports || []);
+    setZoneAssignments(data.zoneAssignments || {});
+    setZoneSends(data.zoneSends || {});
+    if (data.me) {
+      setCurrentUserId(data.me.id);
+      setRole(data.me.roles[0]);
+    }
+  };
+  const reload = () => api.get("/bootstrap").then(applyBootstrap);
+
+  useEffect(() => {
+    const onUnauthorized = () => {
+      setLoggedIn(false);
+      setCurrentUserId(null);
+    };
+    window.addEventListener("tadm:unauthorized", onUnauthorized);
+    return () =>
+      window.removeEventListener("tadm:unauthorized", onUnauthorized);
+  }, []);
+
+  useEffect(() => {
+    if (!getToken()) return;
+    reload()
+      .then(() => setLoggedIn(true))
+      .catch(() => setToken(null))
+      .finally(() => setBooting(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const filtered = useMemo(
     () =>
       schools.filter((school) =>
         [school.name, school.director, school.ministryId, school.city].some(
-          (value) => value.includes(query),
+          (value) => (value || "").includes(query),
         ),
       ),
     [schools, query],
   );
-  const currentUser =
-    users.find((user) => user.id === currentUserId) || users[0];
+  const currentUser = users.find((user) => user.id === currentUserId);
+
+  if (booting)
+    return (
+      <div className="boot-screen" dir="rtl">
+        جارٍ تحميل النظام…
+      </div>
+    );
+  if (!loggedIn || !currentUser)
+    return (
+      <Login
+        onLogin={async (username, password) => {
+          try {
+            const res = await api.post("/login", { username, password });
+            setToken(res.token);
+            await reload();
+            setLoggedIn(true);
+            return null;
+          } catch (err) {
+            return err.message || "فشل تسجيل الدخول";
+          }
+        }}
+      />
+    );
+
+  const run = async (fn) => {
+    setBusy(true);
+    try {
+      await fn();
+      await reload();
+      return true;
+    } catch (err) {
+      window.alert(err.message || "حدث خطأ، حاول مرة أخرى");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const logout = () => {
+    setToken(null);
+    setLoggedIn(false);
+    setCurrentUserId(null);
+  };
   const hasRole = (requestedRole) =>
     currentUser.roles.includes("Full Access") ||
     currentUser.roles.includes(requestedRole) ||
@@ -361,60 +434,27 @@ function App() {
     modal === "school"
       ? districtForPoint(schoolForm.lat, schoolForm.lng)?.name
       : undefined;
-  if (!loggedIn)
-    return (
-      <Login
-        onLogin={(username, password) => {
-          const user = users.find(
-            (item) => item.username === username && item.password === password,
-          );
-          if (!user) return false;
-          setCurrentUserId(user.id);
-          setRole(user.roles[0]);
-          setLoggedIn(true);
-          return true;
-        }}
-      />
-    );
   const saveSchool = (event) => {
     event.preventDefault();
     if (!schoolForm.name || !schoolForm.director || !schoolForm.ministryId)
       return;
-    const now = new Date().toLocaleString("ar-SA");
     const district = districtForPoint(schoolForm.lat, schoolForm.lng);
-    const withZone = {
-      ...schoolForm,
+    const payload = {
+      name: schoolForm.name,
+      director: schoolForm.director,
+      ministryId: schoolForm.ministryId,
+      type: schoolForm.type,
+      gender: schoolForm.gender,
+      lat: schoolForm.lat,
+      lng: schoolForm.lng,
       neighborhoodId: district ? district.id : "",
-      city: district ? district.name : schoolForm.city,
+      city: district ? district.name : schoolForm.city || "",
     };
-    setSchools((items) =>
+    run(() =>
       editing
-        ? items.map((item) =>
-            item.id === editing
-              ? {
-                  ...item,
-                  ...withZone,
-                  id: editing,
-                  updatedBy: currentUser.name,
-                  updatedAt: now,
-                  status: "مكتمل",
-                }
-              : item,
-          )
-        : [
-            {
-              ...withZone,
-              id: Date.now(),
-              status: "مكتمل",
-              addedBy: currentUser.name,
-              addedAt: now,
-              updatedBy: currentUser.name,
-              updatedAt: now,
-            },
-            ...items,
-          ],
-    );
-    setModal(null);
+        ? api.patch(`/schools/${editing}`, payload)
+        : api.post("/schools", payload),
+    ).then((ok) => ok && setModal(null));
   };
   const exportSchools = async () => {
     const XLSX = await import("xlsx");
@@ -465,11 +505,11 @@ function App() {
     setImportResult(null);
     const XLSX = await import("xlsx");
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const workbook = XLSX.read(event.target.result, { type: "array" });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+        const raw = XLSX.utils.sheet_to_json(sheet, { defval: "" });
         const pickFrom = (row) => (...keys) => {
           for (const key of keys) {
             const match = Object.keys(row).find(
@@ -480,64 +520,30 @@ function App() {
           }
           return "";
         };
-        const now = new Date().toLocaleString("ar-SA");
-        const next = [...schools];
-        let added = 0;
-        let updated = 0;
-        let skipped = 0;
-        rows.forEach((row, index) => {
+        const rows = raw.map((row) => {
           const pick = pickFrom(row);
-          const name = pick("اسم المدرسة", "المدرسة", "الاسم");
-          const director = pick("مدير المدرسة", "المدير", "اسم المدير");
-          const ministryId = pick("الرقم الوزاري", "الرقم", "رقم الوزارة");
-          if (!name || !director || !ministryId) {
-            skipped += 1;
-            return;
-          }
           const lat = Number(pick("خط العرض", "lat", "latitude")) || 24.7743;
           const lng = Number(pick("خط الطول", "lng", "longitude")) || 46.7386;
           const district = districtForPoint(lat, lng);
           const typeRaw = pick("نوع المنشأة", "النوع", "نوع");
           const genderRaw = pick("الجنس", "النوع الاجتماعي", "بنين/بنات");
-          const record = {
-            name,
-            director,
-            ministryId,
+          return {
+            name: pick("اسم المدرسة", "المدرسة", "الاسم"),
+            director: pick("مدير المدرسة", "المدير", "اسم المدير"),
+            ministryId: pick("الرقم الوزاري", "الرقم", "رقم الوزارة"),
             type: typeRaw.includes("مجمع") ? "مجمع مدارس" : "مدرسة",
             gender: genderRaw.includes("بنات") ? "بنات" : "بنين",
             lat,
             lng,
             neighborhoodId: district ? district.id : "",
             city: district ? district.name : pick("الحي", "المنطقة"),
-            status: "مكتمل",
           };
-          const existingIndex = next.findIndex(
-            (item) => String(item.ministryId) === ministryId,
-          );
-          if (existingIndex >= 0) {
-            next[existingIndex] = {
-              ...next[existingIndex],
-              ...record,
-              updatedBy: currentUser.name,
-              updatedAt: now,
-            };
-            updated += 1;
-          } else {
-            next.unshift({
-              ...record,
-              id: Date.now() + index,
-              addedBy: currentUser.name,
-              addedAt: now,
-              updatedBy: currentUser.name,
-              updatedAt: now,
-            });
-            added += 1;
-          }
         });
-        setSchools(next);
-        setImportResult({ added, updated, skipped, total: rows.length });
-      } catch {
-        setImportResult({ error: true });
+        const result = await api.post("/schools/import", { rows });
+        await reload();
+        setImportResult(result);
+      } catch (err) {
+        setImportResult({ error: true, message: err.message });
       }
     };
     reader.readAsArrayBuffer(file);
@@ -545,30 +551,21 @@ function App() {
   const saveUser = (event) => {
     event.preventDefault();
     if (!userForm.name || !userForm.username || !userForm.roles.length) return;
-    setUsers((items) =>
+    run(() =>
       editingUser
-        ? items.map((item) =>
-            item.id === editingUser
-              ? {
-                  ...item,
-                  ...userForm,
-                  password: userForm.password || item.password,
-                }
-              : item,
-          )
-        : [
-            ...items,
-            {
-              ...userForm,
-              id: Date.now(),
-              password: userForm.password || "123456",
-              status: "نشط",
-            },
-          ],
-    );
-    setUserForm({ name: "", username: "", roles: ["Employee"], password: "" });
-    setEditingUser(null);
-    setModal(null);
+        ? api.patch(`/users/${editingUser}`, userForm)
+        : api.post("/users", userForm),
+    ).then((ok) => {
+      if (!ok) return;
+      setUserForm({
+        name: "",
+        username: "",
+        roles: ["Employee"],
+        password: "",
+      });
+      setEditingUser(null);
+      setModal(null);
+    });
   };
   const openUser = (user = null) => {
     setEditingUser(user?.id || null);
@@ -597,201 +594,75 @@ function App() {
   const savePart = (event) => {
     event.preventDefault();
     if (!partForm.name || !partForm.code) return;
-    setParts((items) => [
-      ...items,
-      {
-        ...partForm,
-        id: Date.now(),
+    run(() =>
+      api.post("/parts", {
+        name: partForm.name,
+        code: partForm.code,
         quantity: Number(partForm.quantity),
         minimum: Number(partForm.minimum),
-      },
-    ]);
-    setPartForm(emptyPart);
-    setModal(null);
+        unit: partForm.unit,
+      }),
+    ).then((ok) => {
+      if (ok) {
+        setPartForm(emptyPart);
+        setModal(null);
+      }
+    });
   };
   const issuePart = (event) => {
     event.preventDefault();
-    const part = parts.find((item) => item.id === Number(issueForm.partId));
-    const quantity = Number(issueForm.quantity);
-    if (
-      !part ||
-      !issueForm.schoolId ||
-      quantity < 1 ||
-      quantity > part.quantity
-    )
-      return;
-    setParts((items) =>
-      items.map((item) =>
-        item.id === part.id
-          ? { ...item, quantity: item.quantity - quantity }
-          : item,
-      ),
-    );
-    setIssues((items) => [
-      {
-        ...issueForm,
-        id: Date.now(),
-        partName: part.name,
-        schoolName: schools.find(
-          (school) => school.id === Number(issueForm.schoolId),
-        )?.name,
-        quantity,
-        technician: currentUser.name,
-        date: new Date().toLocaleDateString("ar-SA"),
-      },
-      ...items,
-    ]);
-    setIssueForm(emptyIssue);
-    setModal(null);
+    run(() =>
+      api.post("/issues", {
+        partId: Number(issueForm.partId),
+        quantity: Number(issueForm.quantity),
+        schoolId: Number(issueForm.schoolId),
+        notes: issueForm.notes,
+      }),
+    ).then((ok) => {
+      if (ok) {
+        setIssueForm(emptyIssue);
+        setModal(null);
+      }
+    });
   };
   const savePartRequest = (event) => {
     event.preventDefault();
-    const part = parts.find(
-      (item) => item.id === Number(partRequestForm.partId),
-    );
-    const quantity = Number(partRequestForm.quantity);
-    const pendingQuantity = partRequests
-      .filter(
-        (request) =>
-          request.partId === partRequestForm.partId &&
-          request.status === "Pending",
-      )
-      .reduce((sum, request) => sum + request.quantity, 0);
-    if (
-      !part ||
-      !partRequestForm.schoolId ||
-      !partRequestForm.reportNumber ||
-      quantity < 1 ||
-      quantity > part.quantity - pendingQuantity
-    )
-      return;
-    setPartRequests((items) => [
-      {
-        ...partRequestForm,
-        id: Date.now(),
+    run(() =>
+      api.post("/part-requests", {
         partId: Number(partRequestForm.partId),
+        quantity: Number(partRequestForm.quantity),
         schoolId: Number(partRequestForm.schoolId),
-        quantity,
-        partName: part.name,
-        schoolName: schools.find(
-          (school) => school.id === Number(partRequestForm.schoolId),
-        )?.name,
-        requester: currentUser.name,
-        status: "Pending",
-        createdAt: new Date().toLocaleString("ar-SA"),
-      },
-      ...items,
-    ]);
-    setPartRequestForm(emptyPartRequest);
-    setModal(null);
+        reportNumber: partRequestForm.reportNumber,
+        notes: partRequestForm.notes,
+      }),
+    ).then((ok) => {
+      if (ok) {
+        setPartRequestForm(emptyPartRequest);
+        setModal(null);
+      }
+    });
   };
-  const updatePartRequest = (requestId, nextStatus) => {
-    const request = partRequests.find((item) => item.id === requestId);
-    if (!request || !canManageParts) return;
-    if (nextStatus === "Approved") {
-      const part = parts.find((item) => item.id === request.partId);
-      if (!part || request.quantity > part.quantity) return;
-      const now = new Date().toLocaleString("ar-SA");
-      setParts((items) =>
-        items.map((item) =>
-          item.id === part.id
-            ? { ...item, quantity: item.quantity - request.quantity }
-            : item,
-        ),
-      );
-      setIssues((items) => [
-        {
-          id: Date.now(),
-          partId: request.partId,
-          quantity: request.quantity,
-          partName: request.partName,
-          schoolName: request.schoolName,
-          technician: request.requester,
-          date: new Date().toLocaleDateString("ar-SA"),
-          notes: `Approved request ${request.reportNumber}`,
-        },
-        ...items,
-      ]);
-      setPartRequests((items) =>
-        items.map((item) =>
-          item.id === requestId
-            ? {
-                ...item,
-                status: nextStatus,
-                approvedBy: currentUser.name,
-                approvedAt: now,
-              }
-            : item,
-        ),
-      );
-    } else {
-      setPartRequests((items) =>
-        items.map((item) =>
-          item.id === requestId
-            ? {
-                ...item,
-                status: nextStatus,
-                approvedBy: currentUser.name,
-                approvedAt: new Date().toLocaleString("ar-SA"),
-              }
-            : item,
-        ),
-      );
-    }
-  };
-  const sendPartReport = () => {
-    const today = new Date().toLocaleDateString("ar-SA");
-    const issuedToday = issues.filter((issue) => issue.date === today);
-    setPartReports((items) => [
-      {
-        id: Date.now(),
-        date: today,
-        sentBy: currentUser.name,
-        status: "Sent to Team Manager",
-        issued: issuedToday.map((issue) => ({
-          partName: issue.partName,
-          schoolName: issue.schoolName,
-          quantity: issue.quantity,
-          technician: issue.technician,
-        })),
-        totalIssued: issuedToday.reduce((sum, issue) => sum + issue.quantity, 0),
-        lowStock: parts
-          .filter((part) => part.quantity <= part.minimum)
-          .map((part) => part.name),
-        snapshot: parts.map((part) => ({
-          name: part.name,
-          code: part.code,
-          quantity: part.quantity,
-          minimum: part.minimum,
-          unit: part.unit,
-          low: part.quantity <= part.minimum,
-        })),
-      },
-      ...items,
-    ]);
-  };
+  const updatePartRequest = (requestId, nextStatus) =>
+    run(() =>
+      api.patch(`/part-requests/${requestId}`, { status: nextStatus }),
+    );
+  const sendPartReport = () => run(() => api.post("/part-reports"));
   const saveWeeklyReport = (event) => {
     event.preventDefault();
     if (!weeklyForm.schoolIds.length) return;
-    setWeeklyReports((items) => [
-      {
-        id: Date.now(),
-        date: new Date().toLocaleDateString("ar-SA"),
-        technician: currentUser.name,
-        schools: schools
-          .filter((school) => weeklyForm.schoolIds.includes(school.id))
-          .map((school) => school.name),
+    run(() =>
+      api.post("/weekly-reports", {
+        schoolIds: weeklyForm.schoolIds,
         partsAdded: weeklyForm.partsAdded,
-        partsSchools: schools
-          .filter((school) => weeklyForm.partsSchoolIds.includes(school.id))
-          .map((school) => school.name),
+        partsSchoolIds: weeklyForm.partsSchoolIds,
         notes: weeklyForm.notes,
-        status: "Sent to Team Manager",
-      },
-      ...items,
-    ]);
-    setWeeklyForm(emptyWeeklyReport);
-    setModal(null);
+      }),
+    ).then((ok) => {
+      if (ok) {
+        setWeeklyForm(emptyWeeklyReport);
+        setModal(null);
+      }
+    });
   };
   const openSchool = (school = emptySchool) => {
     setEditing(school.id || null);
@@ -800,10 +671,12 @@ function App() {
   };
   const toggleDistrict = (districtId) => {
     if (!activeZoneEmployee) return;
+    const key = String(districtId);
+    const owned = zoneAssignments[key] === activeZoneEmployee;
     setZoneAssignments((current) => {
       const next = { ...current };
-      if (next[districtId] === activeZoneEmployee) delete next[districtId];
-      else next[districtId] = activeZoneEmployee;
+      if (owned) delete next[key];
+      else next[key] = activeZoneEmployee;
       return next;
     });
     setZoneSends((current) => {
@@ -812,6 +685,12 @@ function App() {
       delete next[activeZoneEmployee];
       return next;
     });
+    api
+      .post("/zones/assign", {
+        districtId: key,
+        employeeId: owned ? null : activeZoneEmployee,
+      })
+      .catch(() => reload());
   };
   const clearEmployeeZone = (employeeId) => {
     setZoneAssignments((current) => {
@@ -825,13 +704,11 @@ function App() {
       delete next[employeeId];
       return next;
     });
+    api.post("/zones/clear", { employeeId }).catch(() => reload());
   };
   const sendZone = (employeeId) => {
     if (!districtsOf(employeeId).length) return;
-    setZoneSends((current) => ({
-      ...current,
-      [employeeId]: new Date().toLocaleDateString("ar-SA"),
-    }));
+    run(() => api.post("/zones/send", { employeeId }));
   };
   const titles = {
     "لوحة التحكم": [
@@ -862,6 +739,7 @@ function App() {
   ];
   return (
     <div className="app-shell" dir="rtl">
+      {busy && <div className="saving-pill">جارٍ الحفظ…</div>}
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark">
@@ -946,7 +824,7 @@ function App() {
               </button>
               {userMenu && (
                 <div className="user-menu">
-                  <button onClick={() => setLoggedIn(false)}>
+                  <button onClick={logout}>
                     <LogOut size={13} /> تسجيل الخروج
                   </button>
                 </div>
@@ -986,9 +864,7 @@ function App() {
               query={query}
               setQuery={setQuery}
               openEdit={openSchool}
-              remove={(id) =>
-                setSchools((items) => items.filter((item) => item.id !== id))
-              }
+              remove={(id) => run(() => api.del(`/schools/${id}`))}
               role={role}
               canImportExport={canImportExport}
               onExport={exportSchools}
@@ -1020,9 +896,7 @@ function App() {
               role={role}
               canManageUsers={canManageUsers}
               onEdit={openUser}
-              remove={(id) =>
-                setUsers((items) => items.filter((item) => item.id !== id))
-              }
+              remove={(id) => run(() => api.del(`/users/${id}`))}
             />
           )}
           {page === "قطع الغيار" && canSeeParts && (
